@@ -4,6 +4,8 @@ const extension = ExtensionUtils.getCurrentExtension();
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 
+const GNOME_VERSION = imports.misc.config.PACKAGE_VERSION;
+
 var { OVERVIEW_WORKSPACES, OVERVIEW_APPLICATIONS, OVERVIEW_LAUNCHER } = extension.imports.overview;
 var { overview_visible, overview_show, overview_hide, overview_toggle } = extension.imports.overview;
 
@@ -42,6 +44,10 @@ class CosmicTopBarButton extends PanelMenu.Button {
         // This signal cannot be connected until Main.overview is initialized
         this._pageChangedHandler = null;
         this._idleSource = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+	    // TODO: Update this functionality for Gnome 40+, where page-changed/page-empty don't exist
+            if (!GNOME_VERSION.startsWith("3.38"))
+                return GLib.SOURCE_REMOVE;
+
             if (Main.overview._initCalled) {
                 this._pageChangedHandler = Main.overview.viewSelector.connect('page-changed', () => {
                     this.update();

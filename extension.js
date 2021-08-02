@@ -9,6 +9,8 @@ const OverviewControls = imports.ui.overviewControls;
 const SwitcherPopup = imports.ui.switcherPopup;
 const Util = imports.misc.util;
 
+const GNOME_VERSION = imports.misc.config.PACKAGE_VERSION;
+
 var { OVERVIEW_WORKSPACES, OVERVIEW_APPLICATIONS, OVERVIEW_LAUNCHER } = extension.imports.overview;
 var { overview_visible, overview_show, overview_hide, overview_toggle } = extension.imports.overview;
 var { CosmicTopBarButton } = extension.imports.topBarButton;
@@ -91,6 +93,10 @@ function clock_alignment(alignment) {
 }
 
 function workspace_picker_direction(controls, left) {
+    // There is no "workspace picker" in Gnome 40+
+    if (!GNOME_VERSION.startsWith("3.38"))
+        return;
+
     if (left) {
         controls._thumbnailsSlider.layout.slideDirection = OverviewControls.SlideDirection.LEFT;
         controls._thumbnailsBox.add_style_class_name('workspace-thumbnails-left');
@@ -228,9 +234,10 @@ function enable() {
     });
 
     // Always show workspaces picker
-    inject(Main.overview._overview._controls._thumbnailsSlider, "_getAlwaysZoomOut", function () {
-        return true;
-    });
+    if (GNOME_VERSION.startsWith("3.38"))
+        inject(Main.overview._overview._controls._thumbnailsSlider, "_getAlwaysZoomOut", function () {
+            return true;
+        });
 
     // Pop Shop details
     let original_rebuildMenu = AppDisplay.AppIconMenu.prototype._rebuildMenu;
@@ -253,19 +260,22 @@ function enable() {
     });
 
     // Remove app "spring"
-    inject(Main.overview.viewSelector, '_animateIn', function (oldPage) {
-        if (oldPage)
-            oldPage.hide();
+    // TODO: Update this functionality for Gnome 40+
+    if (GNOME_VERSION.startsWith("3.38")) {
+        inject(Main.overview.viewSelector, '_animateIn', function (oldPage) {
+            if (oldPage)
+                oldPage.hide();
 
-        this.emit('page-empty');
+            this.emit('page-empty');
 
-        this._activePage.show();
+            this._activePage.show();
 
-        this._fadePageIn();
-    });
-    inject(Main.overview.viewSelector, '_animateOut', function (page) {
-        this._fadePageOut(page);
-    });
+            this._fadePageIn();
+        });
+        inject(Main.overview.viewSelector, '_animateOut', function (page) {
+            this._fadePageOut(page);
+        });
+    }
 
     // Hide activities button
     activities_signal_show = Main.panel.statusArea.activities.connect("show", function() {
@@ -299,6 +309,10 @@ function enable() {
     // Hide search and modify background
     // This signal cannot be connected until Main.overview is initialized
     GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        // TODO: Update this functionality for Gnome 40+, where page-changed/page-empty don't exist
+        if (!GNOME_VERSION.startsWith("3.38"))
+            return GLib.SOURCE_REMOVE;
+
         if (Main.overview._initCalled) {
             search_signal_page_changed = Main.overview.viewSelector.connect('page-changed', () => {
                 Main.layoutManager._updateVisibility();
@@ -372,43 +386,49 @@ function enable() {
     });
 
     // Exit from overview on Esc of applications view
-    inject(Main.overview.viewSelector, '_onStageKeyPress', function (actor, event) {
-        if (Main.modalCount > 1)
-            return Clutter.EVENT_PROPAGATE;
+    // TODO: Update this functionality for Gnome 40+
+    if (GNOME_VERSION.startsWith("3.38")) {
+        inject(Main.overview.viewSelector, '_onStageKeyPress', function (actor, event) {
+            if (Main.modalCount > 1)
+                return Clutter.EVENT_PROPAGATE;
 
-        let symbol = event.get_key_symbol();
+            let symbol = event.get_key_symbol();
 
-        if (symbol === Clutter.KEY_Escape) {
-            if (this._searchActive) this.reset();
-            Main.overview.hide();
-            return Clutter.EVENT_STOP;
-        } else if (this._shouldTriggerSearch(symbol)) {
-            if (this._activePage === this._appsPage) this.startSearch(event);
-        } else if (!this._searchActive && !global.stage.key_focus) {
-            if (symbol === Clutter.KEY_Tab || symbol === Clutter.KEY_Down) {
-                this._activePage.navigate_focus(null, St.DirectionType.TAB_FORWARD, false);
+            if (symbol === Clutter.KEY_Escape) {
+                if (this._searchActive) this.reset();
+                Main.overview.hide();
                 return Clutter.EVENT_STOP;
-            } else if (symbol === Clutter.KEY_ISO_Left_Tab) {
-                this._activePage.navigate_focus(null, St.DirectionType.TAB_BACKWARD, false);
-                return Clutter.EVENT_STOP;
+            } else if (this._shouldTriggerSearch(symbol)) {
+                if (this._activePage === this._appsPage) this.startSearch(event);
+            } else if (!this._searchActive && !global.stage.key_focus) {
+                if (symbol === Clutter.KEY_Tab || symbol === Clutter.KEY_Down) {
+                    this._activePage.navigate_focus(null, St.DirectionType.TAB_FORWARD, false);
+                    return Clutter.EVENT_STOP;
+                } else if (symbol === Clutter.KEY_ISO_Left_Tab) {
+                    this._activePage.navigate_focus(null, St.DirectionType.TAB_BACKWARD, false);
+                    return Clutter.EVENT_STOP;
+                }
             }
-        }
-        return Clutter.EVENT_PROPAGATE;
-      });
+            return Clutter.EVENT_PROPAGATE;
+        });
+    }
 
-    inject(Main.overview.viewSelector, 'animateFromOverview', function () {
-        this._workspacesPage.opacity = 255;
+    // TODO: Update this functionality for Gnome 40+
+    if (GNOME_VERSION.startsWith("3.38")) {
+        inject(Main.overview.viewSelector, 'animateFromOverview', function () {
+            this._workspacesPage.opacity = 255;
 
-        this._workspacesDisplay.animateFromOverview(this._activePage != this._workspacesPage);
+            this._workspacesDisplay.animateFromOverview(this._activePage != this._workspacesPage);
 
-        // Don't show background while animating out of applications
-        this.block_signal_handler(search_signal_page_changed);
-        this._showAppsButton.checked = false;
-        this.unblock_signal_handler(search_signal_page_changed);
+            // Don't show background while animating out of applications
+            this.block_signal_handler(search_signal_page_changed);
+            this._showAppsButton.checked = false;
+            this.unblock_signal_handler(search_signal_page_changed);
 
-        if (!this._workspacesDisplay.activeWorkspaceHasMaximizedWindows())
-            Main.overview.fadeInDesktop();
-    });
+            if (!this._workspacesDisplay.activeWorkspaceHasMaximizedWindows())
+                Main.overview.fadeInDesktop();
+        });
+    }
 
     inject(Main.overview, '_shadeBackgrounds', function () {
         // Give Applications a transparent background so it can fade in
